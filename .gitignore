@@ -1,0 +1,7 @@
+
+# Temporary files
+*.kate-swp
+
+# System-generated files and directories
+.DS_Store
+Thumbs.db
