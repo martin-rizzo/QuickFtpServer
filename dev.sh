@@ -6,8 +6,8 @@
 # Repo    : https://github.com/martin-rizzo/SimpleFtpServer
 # License : MIT
 #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#                              Simple Ftp Server
-#     Bash tool for easy console-based mounting of remote Samba resources
+#                             Simple Ftp Server
+#          A lightweight, easy-to-configure FTP server using Docker
 #
 #     Copyright (c) 2024 Martin Rizzo
 #
@@ -35,6 +35,18 @@
 # Define image name and container name
 IMAGE_NAME="simple-ftp-server"
 CONTAINER_NAME="ftp-server"
+PARAMETERS="\
+    -p 20:20 \
+    -p 21:21 \
+"
+
+# run_container_with_parameters() {
+#     docker run -d \
+#         --name "$container_name" \
+#         -p 20:20 \
+#         -p 21:21 \
+#         "$image_name"
+# }
 
 
 # Function to list Docker images and containers
@@ -51,6 +63,20 @@ list_docker_info() {
     echo
 }
 
+
+# Function to build the container
+build_image() {
+
+    clear_docker_resources
+
+    # Build the Docker image
+    echo "Building the Docker image..."
+    if ! docker build -t $IMAGE_NAME . ; then
+        echo "Error: Failed to build the Docker image."
+        return 1
+    fi
+    echo "Done! The container has been built."
+}
 
 # Stop and remove Docker containers (optionally removes Docker images)
 #
@@ -84,22 +110,45 @@ clear_docker_resources() {
     echo "Done! Docker resources cleared."
 }
 
-# Function to build and run the FTP server container
-build_and_run_ftp_server() {
-
-    clear_docker_resources
-
-    # Build the Docker image
-    echo "Building the Docker image..."
-    docker build -t $IMAGE_NAME .
-
-    # Run the container
-    echo "Starting the new container..."
-    docker run -d -p 20:20 -p 21:21 --name $CONTAINER_NAME $IMAGE_NAME
-
-    echo "Done! The container has been built and is running."
+run_container() {
+    if ! docker image inspect $IMAGE_NAME &> /dev/null; then
+        build_image
+    fi
+    if docker ps -a --filter "name=$CONTAINER_NAME" --format '{{.Status}}' | grep -q 'Exited'; then
+        echo "Starting existing stopped container..."
+        docker start "$CONTAINER_NAME"
+        return 0
+    else
+        echo "Starting new container..."
+        echo '>' docker run $PARAMETERS --name "$CONTAINER_NAME" "$IMAGE_NAME"
+        docker run $PARAMETERS --name "$CONTAINER_NAME" "$IMAGE_NAME"
+    fi    
 }
 
+# stop the container if it's running
+stop_container() {
+    if [[ "$(docker ps -q -f name=$CONTAINER_NAME)" ]]; then
+        echo "Stopping the existing container..."
+        docker stop $CONTAINER_NAME
+    fi
+}
+
+restart_container() {
+    stop_container && run_container
+}
+
+show_container_logs() {
+    if ! docker ps -a --format '{{.Names}}' | grep -q "^$CONTAINER_NAME$"; then
+        echo "Error: The container $CONTAINER_NAME does not exist." >&2
+        return 1
+    fi
+    echo "Showing logs for container $CONTAINER_NAME..."
+    docker logs $CONTAINER_NAME
+}
+
+open_console_in_container() {
+    docker exec -it "$CONTAINER_NAME" /bin/sh
+}
 
 # Main script logic
 case "$1" in
@@ -109,6 +158,48 @@ case "$1" in
     "clean")
         clear_docker_resources remove-image
         ;;
+    "build")
+        build_image
+        ;;
+    "run")
+        run_container
+        ;;
+    "stop")
+        stop_container
+        ;;
+    "restart")
+        restart_container
+        ;;
+    "console")
+        open_console_in_container
+        ;;
+#    "logs")
+#        show_container_logs
+#        ;;
+#    "status")
+#        show_container_status
+#        ;;
+#    "push")
+#        push_to_registry
+#        ;;
+#    "pull")
+#        pull_from_registry
+#        ;;
+#    "exec")
+#        execute_command_in_container
+#        ;;
+#    "config")
+#        view_edit_container_config
+#        ;;
+#    "backup")
+#        backup_container_data
+#        ;;
+#    "restore")
+#        restore_container_data
+#        ;;
+#    "inspect")
+#        inspect_container
+#        ;;
     *)
         build_and_run_ftp_server
         ;;
