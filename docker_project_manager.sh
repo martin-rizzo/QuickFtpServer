@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# File    : build.sh
-# Brief   : Script to manage the docker images and containers.
+# File    : docker_project_manager.sh
+# Brief   : Script to manage the docker image and container for this project
 # Author  : Martin Rizzo | <martinrizzo@gmail.com>
 # Date    : Feb 6, 2024
 # Repo    : https://github.com/martin-rizzo/SimpleFtpServer
@@ -32,33 +32,55 @@
 #_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 
-# Define image name and container name
+# Define parameters for managing the Docker image and container of the project.
+#  - IMAGE_NAME     : Name of the Docker image associated with the project.
+#  - CONTAINER_NAME : Name of the Docker container instantiated from the image.
+#  - CONTAINER_PARAMETERS :
+#      Parameters for configuring the Docker container. These parameters
+#      are passed to the 'docker run' command for setting up port mappings,
+#      environment variables, volumes, etc.
+#      Make sure to properly format them by escaping newline characters '\'.
+#
 IMAGE_NAME="simple-ftp-server"
 CONTAINER_NAME="ftp-server"
-PARAMETERS="\
-    -p 20:20 \
-    -p 21:21 \
+CONTAINER_PARAMETERS="
+    -p 20:20 
+    -p 21:21 
 "
 
-# run_container_with_parameters() {
-#     docker run -d \
-#         --name "$container_name" \
-#         -p 20:20 \
-#         -p 21:21 \
-#         "$image_name"
-# }
+#-------------------------------- HELPERS ----------------------------------#
+
+RED='\e[1;31m'
+YELLOW='\e[1;33m'
+BLUE='\e[1;34m'
+DEFAULT_COLOR='\e[0m'
+
+warning() {
+    local message=$1
+    echo -e "${YELLOW}WARNING${DEFAULT_COLOR} ${message}"
+}
+
+error() {
+    local message=$1
+    echo -e "${RED}ERROR:${DEFAULT_COLOR} ${message}"
+}
+
+fatal_error() {
+    local message=$1
+    error "$message"
+    exit 1
+}
+
+#-------------------------------- COMMANDS ---------------------------------#
 
 
 # Function to list Docker images and containers
 list_docker_info() {
     echo
     echo -e '    \e[1;32mDOCKER IMAGES'
-    #echo '--------------'
-    #docker images | sed 's/^/    /'
     docker images | awk 'NR==1 {print "    \033[0;30;42m" $0 "\033[0m"} NR>1 {print "    " $0 }'
     echo
     echo -e '    \e[1;32mDOCKER CONTAINERS'
-    #echo '------------------'
     docker ps -a  | awk 'NR==1 {print "    \033[0;30;42m" $0 "\033[0m"} NR>1 {print "    " $0 }'
     echo
 }
@@ -72,8 +94,7 @@ build_image() {
     # Build the Docker image
     echo "Building the Docker image..."
     if ! docker build -t $IMAGE_NAME . ; then
-        echo "Error: Failed to build the Docker image."
-        return 1
+        fatal_error "Failed to build the Docker image."
     fi
     echo "Done! The container has been built."
 }
@@ -120,8 +141,8 @@ run_container() {
         return 0
     else
         echo "Starting new container..."
-        echo '>' docker run $PARAMETERS --name "$CONTAINER_NAME" "$IMAGE_NAME"
-        docker run $PARAMETERS --name "$CONTAINER_NAME" "$IMAGE_NAME"
+        echo '>' docker run $CONTAINER_PARAMETERS --name "$CONTAINER_NAME" "$IMAGE_NAME"
+        docker run $CONTAINER_PARAMETERS --name "$CONTAINER_NAME" "$IMAGE_NAME"
     fi    
 }
 
