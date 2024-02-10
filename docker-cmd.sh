@@ -205,6 +205,7 @@ show_container_status() {
 }
 
 # Main script logic
+cd src
 case "$1" in
     "build")
         build_image
