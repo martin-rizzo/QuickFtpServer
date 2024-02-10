@@ -41,8 +41,9 @@
 #      environment variables, volumes, etc.
 #      Make sure to properly format them by escaping newline characters '\'.
 #
-IMAGE_NAME="simple-ftp-server"
-CONTAINER_NAME="ftp-server"
+IMAGE_NAME='simple-ftp-server'
+IMAGE_VER='0.1'
+CONTAINER_NAME='ftp-server'
 CONTAINER_PARAMETERS="
     -p 20:20 
     -p 21:21 
@@ -204,40 +205,90 @@ show_container_status() {
     fatal_error "Not implemented"
 }
 
-# Main script logic
+#===========================================================================#
+# ///////////////////////////////// MAIN ////////////////////////////////// #
+#===========================================================================#
+
+HELP="
+Usage: ./docker-cmd.sh [OPTIONS] COMMAND
+
+A script to manage Docker operations for your image.
+
+Options:
+  -h, --help     Display this help message and exit
+  -v, --version  Display version information and exit
+
+Commands:
+  build          Build the Docker image
+  clean          Clear Docker resources
+  run            Run the Docker container
+  stop           Stop the Docker container
+  restart        Restart the Docker container
+  console        Open a console in the Docker container
+  list           List Docker information
+  logs           Show Docker container logs
+  exec           Execute a command in the Docker container
+  status         Show the status of the Docker container
+
+"
+
+# check if the user requested help or the image version
+if [ $# -eq 0 ]; then
+    echo "$HELP" ; exit 0
+fi
+for param in "$@"; do
+    case "$param" in
+        -h|--help)
+            echo "$HELP" ; exit 0
+            ;;
+        -v|--version)
+            echo $IMAGE_NAME $IMAGE_VER
+            exit 0
+            ;;
+        -*)
+            fatal_error "Option '$param' is not supported"
+            ;;
+    esac
+done
+
+# process each command requested by the user
 cd src
-case "$1" in
-    "build")
-        build_image
-        ;;
-    "clean")
-        clear_docker_resources
-        ;;
-    "run")
-        run_container
-        ;;
-    "stop")
-        stop_container
-        ;;
-    "restart")
-        restart_container
-        ;;
-    "console")
-        open_console_in_container
-        ;;
-    "list")
-        list_docker_info
-        ;;
-   "logs")
-       show_container_logs
-       ;;
-   "exec")
-       execute_command_in_container
-       ;;
-   "status")
-       show_container_status
-       ;;
-    *)
-        build_image
-        ;;
-esac
+for param in "$@"; do
+
+    case "$param" in
+        "build")
+            build_image
+            ;;
+        "clean")
+            clear_docker_resources
+            ;;
+        "run")
+            run_container
+            ;;
+        "stop")
+            stop_container
+            ;;
+        "restart")
+            restart_container
+            ;;
+        "console")
+            open_console_in_container
+            ;;
+        "list")
+            list_docker_info
+            ;;
+        "logs")
+            show_container_logs
+            ;;
+        "exec")
+            execute_command_in_container
+            ;;
+        "status")
+            show_container_status
+            ;;
+        *)
+            fatal_error "Unknown command '$param'"
+            ;;
+    esac
+    
+done
