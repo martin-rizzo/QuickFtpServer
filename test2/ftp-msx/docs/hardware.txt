@@ -1,0 +1,5 @@
+Title: Hardware Reference for MSX
+Author: Mary Smith
+
+In this document, you will find detailed information about MSX hardware. From the internal structure of the computer to the specification of different MSX models, this document is a comprehensive guide to understanding the operation and capabilities of your MSX system. Additionally, diagrams and tables are included for quick and easy reference.
+

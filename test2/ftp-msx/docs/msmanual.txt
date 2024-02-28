@@ -1,0 +1,5 @@
+Title: MSX User Manual
+Author: Bob Johnson
+
+The MSX user manual is a comprehensive guide to all aspects of the MSX system. From powering on and off the computer to loading and running programs, this manual covers everything you need to know to get the most out of your MSX. Sections on basic maintenance, troubleshooting, and tips for enhancing your MSX experience are also included.
+

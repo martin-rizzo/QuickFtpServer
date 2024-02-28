@@ -1,0 +1,5 @@
+Title: BASIC Programming for MSX
+Author: John Doe
+
+This file contains examples of programs written in BASIC for MSX. MSX BASIC is a versatile programming language that allows users to create a variety of applications and games for their MSX computers. The programs included here range from simple demonstration programs to complete games. Experiment and have fun programming on your MSX!
+
