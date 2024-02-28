@@ -6,6 +6,11 @@ FROM alpine:3.19.1
 RUN apk update && \
     apk add --no-cache vsftpd
 
+# Hace un backup de los usuarios y grupos actuales
+#COPY /etc/passwd /etc/passwd.original
+#COPY /etc/group  /etc/group.original
+
+
 # Copy the custom configuration file
 COPY vsftpd.conf /etc/vsftpd/vsftpd.conf
 
@@ -14,8 +19,14 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 
+# Adds a couple of aliases for 'll' (useful for 'docker-cmd console')
+RUN echo "alias ll='ls -lh --group-directories-first'" > /etc/profile.d/ls_aliases.sh
+RUN echo "alias ll.='ls -l -d .* --color=auto'"       >> /etc/profile.d/ls_aliases.sh
+
+
 # Expose port 20 (FTP data) and 21 (FTP control)
 EXPOSE 20 21
+EXPOSE 21000-21007
 
 # Run the FTP server when the container starts
 #CMD ["envsftpd", "/etc/vsftpd/vsftpd.conf"]
