@@ -41,31 +41,49 @@
 #      environment variables, volumes, etc.
 #      Make sure to properly format them by escaping newline characters '\'.
 #
+PROJECT_DIR=$(realpath $(dirname "${BASH_SOURCE[0]}") )
 IMAGE_NAME='simple-ftp-server'
 IMAGE_VER='0.1'
 CONTAINER_NAME='ftp-server'
 CONTAINER_PARAMETERS="
-    -p 20:20 
-    -p 21:21 
+    -e USER_ID=$(id -u) -e GROUP_ID=$(id -g)
+    -v {DIR_TO_MOUNT}:/app:Z
+    -p 20:20
+    -p 21:21
+    -p 21000:21000
+    -p 21001:21001
+    -p 21002:21002
+    -p 21003:21003
+    -p 21004:21004
+    -p 21005:21005
+    -p 21006:21006
+    -p 21007:21007
 "
+LOG_LEVEL='debug'  # | debug | info | warn | error | fatal |
 
 #-------------------------------- HELPERS ----------------------------------#
 
 RED='\e[1;31m'
+GREEN='\e[1;32m' 
 YELLOW='\e[1;33m'
 BLUE='\e[1;34m'
 DEFAULT_COLOR='\e[0m'
 
+
+message() {
+    echo -e "${GREEN}>${DEFAULT_COLOR} $1"
+}
+
 # Displays a warning message
 warning() {
     local message=$1
-    echo -e "${YELLOW}WARNING${DEFAULT_COLOR} ${message}"
+    echo -e "${YELLOW}WARNING:${DEFAULT_COLOR} $message"
 }
 
 # Displays an error message
 error() {
     local message=$1
-    echo -e "${RED}ERROR:${DEFAULT_COLOR} ${message}"
+    echo -e "${RED}ERROR:${DEFAULT_COLOR} $message"
 }
 
 # Displays a fatal error message and exits the script with status code 1
@@ -75,14 +93,21 @@ fatal_error() {
     exit 1
 }
 
-# Checks if a Docker image exists in the repository
-docker_image_exists() {
-    docker image inspect "$1" &> /dev/null
+# Checks if a Docker container is running
+docker_container_is_running() {
+    local status=$(docker container inspect --format='{{.State.Status}}' "$1" 2>/dev/null)
+    [[ $status = 'running' ]]
 }
 
 # Checks if a Docker container is stopped
-docker_container_stopped() {
-    docker container inspect --format='{{.State.Status}}' "$1" | grep -qi "exited"
+docker_container_is_stopped() {
+    local status=$(docker container inspect --format='{{.State.Status}}' "$1" 2>/dev/null)
+    [[ $status = 'exited' ]]
+}
+
+# Checks if a Docker image exists in the repository
+docker_image_exists() {
+    docker image inspect "$1" &> /dev/null
 }
 
 # Checks if a Docker container exists
@@ -99,9 +124,13 @@ docker_container_exists() {
 # Build the container
 build_image() {
 
-    clear_docker_resources
+    # if the image already exists then do nothing
+    if docker_image_exists $IMAGE_NAME ; then
+        warning "The image is already built, nothing to do."
+        exit 0
+    fi
 
-    # Build the Docker image
+    # build the Docker image
     echo "Building the Docker image..."
     if ! docker build -t $IMAGE_NAME . ; then
         fatal_error "Failed to build the Docker image."
@@ -133,50 +162,6 @@ clear_docker_resources() {
     echo "Done! Docker resources cleared."
 }
 
-# Run the container
-run_container() {
-
-    # if the container already exists
-    # ensure the container is running
-    if docker_container_exists $CONTAINER_NAME ; then
-        if docker_container_stopped $CONTAINER_NAME ; then
-            echo "Starting existing stopped container..."
-            docker start "$CONTAINER_NAME"
-        else
-            echo "Docker container already running"
-        fi
-        return
-    fi
-    
-    # if the container doesn't exist
-    # check for its image; if not found, build it!
-    if ! docker_image_exists $IMAGE_NAME ; then
-        build_image
-    fi
-    
-    # start a new container with specified parameters
-    echo "Starting new container..."
-    echo '>' docker run $CONTAINER_PARAMETERS --name "$CONTAINER_NAME" "$IMAGE_NAME"
-    docker run $CONTAINER_PARAMETERS --name "$CONTAINER_NAME" "$IMAGE_NAME"
-
-}
-
-# Stop the container if it's running
-stop_container() {
-    if [[ "$(docker ps -q -f name=$CONTAINER_NAME)" ]]; then
-        echo "Stopping the existing container..."
-        docker stop $CONTAINER_NAME
-    fi
-}
-
-restart_container() {
-    stop_container && run_container
-}
-
-open_console_in_container() {
-    docker exec -it "$CONTAINER_NAME" /bin/sh
-}
-
 # List images and containers
 list_docker_info() {
     echo
@@ -186,6 +171,67 @@ list_docker_info() {
     echo -e '    \e[1;32mDOCKER CONTAINERS'
     docker ps -a  | awk 'NR==1 {print "    \033[0;30;42m" $0 "\033[0m"} NR>1 {print "    " $0 }'
     echo
+}
+
+run_container() {
+    local dir_to_mount=$1
+
+    # before running the container again, it needs to be removed
+    remove_container
+
+    # if the image does not exist, then build it from scratch
+    if ! docker_image_exists $IMAGE_NAME ; then
+        build_image
+    fi
+
+    # start a new container with specified parameters
+    message "Starting the '$CONTAINER_NAME' container..."
+    local parameters=${CONTAINER_PARAMETERS//'{DIR_TO_MOUNT}'/$dir_to_mount}
+    message "docker --log-level=$LOG_LEVEL run $parameters    --name '$CONTAINER_NAME' '$IMAGE_NAME'"
+    docker "--log-level=$LOG_LEVEL" run $parameters --name "$CONTAINER_NAME" "$IMAGE_NAME"
+}
+
+# Run the container using the requested test directory
+run_test() {
+    local test_number=${1:-1}
+    if [[ ! $test_number =~ ^[1-9]$ ]]; then
+        fatal_error "Test number must be between 1 and 9"
+    fi
+    
+    # validate the existence of the directory containing the test
+    test_dir="${PROJECT_DIR}/test${test_number}"
+    if [[ ! -d $test_dir ]]; then
+        fatal_error "The requested test has not been implemented"
+    fi
+    
+    run_container "$test_dir"
+}
+
+# Stop the container if it's currently running
+stop_container() {
+    if docker_container_is_running $CONTAINER_NAME ; then
+        message "Stopping the '$CONTAINER_NAME' container..."
+        docker stop $CONTAINER_NAME 1> /dev/null && \
+          message "The '$CONTAINER_NAME' container has been successfully stopped."
+    fi
+}
+
+# Stop and remove the container if it exists
+remove_container() {
+    stop_container
+    if docker_container_exists $CONTAINER_NAME ; then
+        message "Removing the '$CONTAINER_NAME' container..."
+        docker rm $CONTAINER_NAME 1> /dev/null && \
+          message "The '$CONTAINER_NAME' container has been successfully removed."
+    fi
+}
+
+restart_container() {
+    stop_container && run_container
+}
+
+open_console_in_container() {
+    docker exec -it "$CONTAINER_NAME" /bin/sh -l
 }
 
 show_container_logs() {
@@ -212,7 +258,7 @@ show_container_status() {
 HELP="
 Usage: ./docker-cmd.sh [OPTIONS] COMMAND
 
-A script to manage Docker operations for your image.
+A script to manage the Docker image and container for this project.
 
 Options:
   -h, --help     Display this help message and exit
@@ -221,15 +267,15 @@ Options:
 Commands:
   build          Build the Docker image
   clean          Clear Docker resources
-  run            Run the Docker container
+  list           List Docker information
+  run            Run the Docker container (equivalent to 'test1')
+  test<number>   Run test <number>
   stop           Stop the Docker container
   restart        Restart the Docker container
   console        Open a console in the Docker container
-  list           List Docker information
   logs           Show Docker container logs
   exec           Execute a command in the Docker container
   status         Show the status of the Docker container
-
 "
 
 # check if the user requested help or the image version
@@ -253,42 +299,69 @@ done
 
 # process each command requested by the user
 cd src
-for param in "$@"; do
+while [[ $# -gt 0 ]]; do
 
+    param=$1
     case "$param" in
-        "build")
+        build)
             build_image
             ;;
-        "clean")
+        clean)
             clear_docker_resources
             ;;
-        "run")
-            run_container
+        run)
+            run_test 1
             ;;
-        "stop")
+        test*)
+            if [[ $param != 'test' ]]; then
+                run_test "${param#test}"
+            elif [[ $# -gt 1 ]]; then
+                run_test "$2" ; shift
+            else
+                fatal_error "A test number is required after the 'test' command."
+            fi
+            ;; 
+        stop)
             stop_container
             ;;
-        "restart")
+        remove)
+            remove_container
+            ;;
+        restart)
             restart_container
             ;;
-        "console")
+        console)
             open_console_in_container
             ;;
-        "list")
+        list)
             list_docker_info
             ;;
-        "logs")
+        logs)
             show_container_logs
             ;;
-        "exec")
+        exec)
             execute_command_in_container
             ;;
-        "status")
+        status)
             show_container_status
+            ;;
+            
+        image-exists)
+            docker_image_exists $IMAGE_NAME && echo YES || echo NO
+            ;;
+        container-exists)
+            docker_container_exists $CONTAINER_NAME && echo YES || echo NO
+            ;;
+        is-running)
+            docker_container_is_running $CONTAINER_NAME && echo YES || echo NO
+            ;;
+        is-stopped)
+            docker_container_is_stopped $CONTAINER_NAME && echo YES || echo NO
             ;;
         *)
             fatal_error "Unknown command '$param'"
             ;;
     esac
+    shift
     
 done
