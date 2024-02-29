@@ -50,14 +50,7 @@ CONTAINER_PARAMETERS="
     -v {DIR_TO_MOUNT}:/app:Z
     -p 20:20
     -p 21:21
-    -p 21000:21000
-    -p 21001:21001
-    -p 21002:21002
-    -p 21003:21003
-    -p 21004:21004
-    -p 21005:21005
-    -p 21006:21006
-    -p 21007:21007
+    -p 21000-21007:21000-21007
 "
 LOG_LEVEL='debug'  # | debug | info | warn | error | fatal |
 
