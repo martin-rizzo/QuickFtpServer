@@ -12,7 +12,7 @@ RUN apk update && \
 
 
 # Copy the custom configuration file
-COPY vsftpd.conf /etc/vsftpd/vsftpd.conf
+COPY vsftpd.conf /etc/vsftpd/vsftpd.conf.template
 
 
 COPY entrypoint.sh /entrypoint.sh

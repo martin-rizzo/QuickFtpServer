@@ -33,7 +33,7 @@ BLUE='\e[1;34m'
 DEFAULT_COLOR='\e[0m'
 
 # Displays a message
-message() {
+function message() {
     local message=$1 timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     echo -e "${GREEN}>${DEFAULT_COLOR} $message"
     if [[ -n "$QFTP_LOG_FILE" ]]; then
@@ -42,7 +42,7 @@ message() {
 }
 
 # Displays a warning message
-warning() {
+function warning() {
     local message=$1 timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     echo -e "${YELLOW}WARNING:${DEFAULT_COLOR} $message"
     if [[ -n "$QFTP_LOG_FILE" ]]; then
@@ -51,7 +51,7 @@ warning() {
 }
 
 # Displays an error message
-error() {
+function error() {
     local message=$1 timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     echo -e "${RED}ERROR:${DEFAULT_COLOR} $message"
     if [[ -n "$QFTP_LOG_FILE" ]]; then
@@ -60,7 +60,7 @@ error() {
 }
 
 # Displays a fatal error message and exits the script with status code 1
-fatal_error() {
+function fatal_error() {
     local message=$1
     error "$message"
     exit 1
@@ -71,6 +71,35 @@ validate_integer() {
   [[ $1 =~ ^[0-9]+$ ]]
 }
 
+run_as_user() {
+    local command=$1
+    su -s /bin/sh -pc "$command" - $USER_NAME
+}
+
+# Replace placeholders in a template with corresponding values and print the resulting string.
+#
+# Usage:
+#   print_template <template> [var1] [value1] [var2] [value2] ...
+#   print_template <template> "${template_vars[@]}"
+#
+# Parameters:
+#   - template          : the template string containing placeholders to be replaced.
+#   - var1, value1, ... : pairs of variables and values to replace in the template.
+#   - template_vars     : an array containing pairs of variables and values to replace in the template.
+#
+# Example:
+#   template_vars=( "{NAME}" "John" "{DAY}" "Monday" )
+#   print_template "Hello, {NAME}! Today is {DAY}" "${template_vars[@]}"
+#
+function print_template() {
+    local template=$1 ; shift
+    while [[ $# -gt 0 ]]; do
+        local key=$1 value=$2
+        template=${template//$key/$value}
+        shift 2
+    done
+    echo "$template"
+}
 
 
 
@@ -106,7 +135,20 @@ ensure_main_user_and_group() {
     #chown "$USER_NAME:$GROUP_NAME" "$HOME_DIR"
 }
 
-ensure_qftp_logfile() {
+# Set the logfile for QuickFtpServer.
+#
+# Usage:
+#   set_qftp_logfile <logfile_name>
+#
+# Parameters:
+#   - logfile_name: the name of the log file to be set.
+#
+# Example:
+#   set_qftp_logfile 'quickftpserver.log'
+#
+function set_qftp_logfile() {
+    local logfile_name=$1
+    [[ -z "$logfile_name" ]] && fatal_error "set_qftp_logfile() requires a parameter with the filename"
 
     # create necessary directory for log files
     if [[ ! -d $LOG_DIR ]]; then
@@ -115,16 +157,36 @@ ensure_qftp_logfile() {
     fi
 
     # create QuickFtpServer's own log file
-    QFTP_LOG_FILE="$LOG_DIR/quickftpserver.log"
+    QFTP_LOG_FILE="$LOG_DIR/$logfile_name"
     if [[ ! -e $QFTP_LOG_FILE ]]; then
         run_as_user "touch \"$QFTP_LOG_FILE\""
         message "Log file created: $QFTP_LOG_FILE"
     fi
 }
 
-add_virtual_user() {
-    echo not implemented
+# Create the vsftpd configuration file from the template.
+#
+# Usage:
+#   create_vsftpd_conf <conf_path>
+#
+# Parameters:
+#   - conf_path: the path to the vsftpd configuration file to be created.
+#                (the template file name will be "${conf_path}.template")
+# Example:
+#   create_vsftpd_conf "/etc/vsftpd.conf"
+#
+function create_vsftpd_conf() {
+    local conf_path=$1
+    local template_path="${conf_path}.template"
+    [[ -z   "$conf_path"     ]] && fatal_error "create_vsftpd_conf() requires a parameter with the filepath"
+    [[ ! -f "$template_path" ]] && fatal_error "create_vsftpd_conf() requires the file $template_path"
+    
+    print_template "$(cat "$template_path")" \
+        "{USER_NAME}"   "$USER_NAME"         \
+        "{GROUP_NAME}"  "$GROUP_NAME"        \
+        > "$conf_path"
 }
+
 
 
 function start_service() {
@@ -150,10 +212,6 @@ function stop_service() {
 
 
 
-run_as_user() {
-    local command=$1
-    su -s /bin/sh -pc "$command" - $USER_NAME
-}
 
 
 #===========================================================================#
@@ -163,8 +221,11 @@ run_as_user() {
 # ensure that the requested USER_ID and GROUP_ID exist.
 ensure_main_user_and_group
 
-# ensure that the QuickFtpServer log file exists.
-ensure_qftp_logfile
+# activa el archivo de log para QuickFtpServer
+set_qftp_logfile 'quickftpserver.log'
+
+# crear el archivo de configuracion para vsftpd
+create_vsftpd_conf "$VSFTPD_CONF_FILE"
 
 # start the vsftpd server as a service.
 trap stop_service SIGINT SIGTERM
