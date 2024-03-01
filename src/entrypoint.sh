@@ -127,7 +127,7 @@ ensure_main_user_and_group() {
     fi
     if ! getent passwd "$USER_ID" &>/dev/null; then
         message "Creating user $USER_NAME [$USER_ID]"
-        adduser $USER_NAME -G $GROUP_NAME -g "Simple FTP Server" -h "$HOME_DIR" -s /sbin/nologin -D -H --uid $USER_ID
+        adduser $USER_NAME -G $GROUP_NAME -g "QuickFtpServer" -h "$HOME_DIR" -s /sbin/nologin -D -H --uid $USER_ID
     else
         USER_NAME=$(getent passwd $user_id | cut -d: -f1)
     fi

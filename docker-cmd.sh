@@ -3,10 +3,10 @@
 # Brief   : Script to manage the docker image and container for this project
 # Author  : Martin Rizzo | <martinrizzo@gmail.com>
 # Date    : Feb 6, 2024
-# Repo    : https://github.com/martin-rizzo/SimpleFtpServer
+# Repo    : https://github.com/martin-rizzo/QuickFtpServer
 # License : MIT
 #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-#                             Simple Ftp Server
+#                             QuickFtpServer
 #          A lightweight, easy-to-configure FTP server using Docker
 #
 #     Copyright (c) 2024 Martin Rizzo
@@ -42,7 +42,7 @@
 #      Make sure to properly format them by escaping newline characters '\'.
 #
 PROJECT_DIR=$(realpath $(dirname "${BASH_SOURCE[0]}") )
-IMAGE_NAME='simple-ftp-server'
+IMAGE_NAME='quick-ftp-server'
 IMAGE_VER='0.1'
 CONTAINER_NAME='ftp-server'
 CONTAINER_PARAMETERS="
