@@ -81,8 +81,9 @@ error() {
 
 # Displays a fatal error message and exits the script with status code 1
 fatal_error() {
-    local message=$1
-    error "$message"
+    local error_message=$1 extra_info=$2
+    [[ -n $error_message ]] && error "$error_message"
+    [[ -n $extra_info    ]] && message "$extra_info"
     exit 1
 }
 
@@ -184,20 +185,22 @@ run_container() {
     docker "--log-level=$LOG_LEVEL" run $parameters --name "$CONTAINER_NAME" "$IMAGE_NAME"
 }
 
-# Run the container using the requested test directory
-run_test() {
-    local test_number=${1:-1}
-    if [[ ! $test_number =~ ^[1-9]$ ]]; then
-        fatal_error "Test number must be between 1 and 9"
+# Run the container using the requested example directory
+run_example() {
+    local example_number=${1:-1}
+    if [[ ! $example_number =~ ^[1-9]$ ]]; then
+        fatal_error "Example number must be between 1 and 9"
     fi
     
-    # validate the existence of the directory containing the test
-    test_dir="${PROJECT_DIR}/test${test_number}"
-    if [[ ! -d $test_dir ]]; then
-        fatal_error "The requested test has not been implemented"
+    # validate the existence of the directory containing the example
+    example_dir="${PROJECT_DIR}/example${example_number}"
+    if [[ ! -d $example_dir ]]; then
+        #fatal_error "The requested example ('./example${example_number}') has not been implemented"
+        fatal_error "The requested example '$example_number' is not available" \
+            "Please verify that the example is implemented in the directory './example${example_number}'"
     fi
     
-    run_container "$test_dir"
+    run_container "$example_dir"
 }
 
 # Stop the container if it's currently running
@@ -258,17 +261,18 @@ Options:
   -v, --version  Display version information and exit
 
 Commands:
-  build          Build the Docker image
-  clean          Clear Docker resources
-  list           List Docker information
-  run            Run the Docker container (equivalent to 'test1')
-  test<number>   Run test <number>
-  stop           Stop the Docker container
-  restart        Restart the Docker container
-  console        Open a console in the Docker container
-  logs           Show Docker container logs
-  exec           Execute a command in the Docker container
-  status         Show the status of the Docker container
+  build            Build the Docker image
+  clean            Clear Docker resources
+  list             List Docker information
+  run              Run the Docker container (equivalent to 'example1')
+  test<number>     Alias for 'example<number>'
+  example<number>  Run the example specified by <number>
+  stop             Stop the Docker container
+  restart          Restart the Docker container
+  console          Open a console in the Docker container
+  logs             Show Docker container logs
+  exec             Execute a command in the Docker container
+  status           Show the status of the Docker container
 "
 
 # check if the user requested help or the image version
@@ -307,13 +311,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         test*)
             if [[ $param != 'test' ]]; then
-                run_test "${param#test}"
+                run_example "${param#test}"
             elif [[ $# -gt 1 ]]; then
-                run_test "$2" ; shift
+                run_example "$2" ; shift
             else
                 fatal_error "A test number is required after the 'test' command."
             fi
-            ;; 
+            ;;
+        example*)
+            if [[ $param != 'example' ]]; then
+                run_example "${param#example}"
+            elif [[ $# -gt 1 ]]; then
+                run_example "$2" ; shift
+            else
+                fatal_error "A example number is required after the 'example' command."
+            fi
+            ;;
         stop)
             stop_container
             ;;
