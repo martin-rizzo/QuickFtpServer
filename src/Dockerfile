@@ -15,8 +15,11 @@ RUN apk update && \
 COPY vsftpd.conf /etc/vsftpd/vsftpd.conf.template
 
 
+COPY configreader.sh  /configreader.sh
+COPY test.sh          /test.sh
+RUN chmod +x          /test.sh
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod +x       /entrypoint.sh
 
 
 # Adds a couple of aliases for 'll' (useful for 'docker-cmd console')

@@ -307,7 +307,7 @@ while [[ $# -gt 0 ]]; do
             clear_docker_resources
             ;;
         run)
-            run_test 1
+            run_example 1
             ;;
         test*)
             if [[ $param != 'test' ]]; then
