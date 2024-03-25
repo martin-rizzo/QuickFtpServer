@@ -1,0 +1,8 @@
+#%PAM-1.0
+# Configuration for Virtual Users in vsftpd (FTP server)
+# ------------------------------------------------------
+# This file specifies the PAM configuration for vsftpd,
+# handling authentication and account management for virtual users.
+
+auth     required  pam_unix.so  try_first_pass
+account  required  pam_unix.so 

@@ -51,9 +51,12 @@ fi
 
 echo
 echo RESOURCES
-echo "$CFG_RESOURCES"
+echo "$CFG_RESOURCES" | while IFS='|' read -r name dir desc; do
+    echo "name='$name'  dir='$dir'"
+done
 echo
-echo USERS
-echo "$CFG_USERS"
+echo "$CFG_USERS" | while IFS='|' read -r name pass x; do
+    echo "'$name'"
+done
 echo
 echo PASV = $CFG_PASV
