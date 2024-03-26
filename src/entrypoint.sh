@@ -22,6 +22,7 @@ RUN_DIR=/run
 LOG_DIR="$APPDATA_DIR/${LOG_DIR:-log}"
 HOME_DIR="$APPDATA_DIR/${HOME_DIR:-ftp-data}"
 SCRIPT_DIR=$(dirname "$0")
+PROJECT_NAME=QuickFtpServer
 
 # FILES
 PID_FILE="$RUN_DIR/vsftpd.pid"
@@ -137,7 +138,7 @@ ensure_system_user_and_group() {
     fi
     if ! getent passwd "$USER_ID" &>/dev/null; then
         message "Creating system user  : $USER_NAME [$USER_ID]"
-        adduser $USER_NAME -G $GROUP_NAME -g "QuickFtpServer" -h "$HOME_DIR" -s /sbin/nologin -D -H --uid $USER_ID
+        create_user "$USER_NAME:$USER_ID" "$GROUP_NAME" "$HOME_DIR" "QuickFtpServer"
     else
         USER_NAME=$(getent passwd $user_id | cut -d: -f1)
     fi
@@ -191,6 +192,7 @@ function create_vsftpd_conf() {
     [[ ! -f "$template_file" ]] && fatal_error "create_vsftpd_conf() requires the file $PWD/$template_file"
     
     print_template "$(cat "$template_file")"    \
+        "{ANON_USER_NAME}"  "$USER_NAME"        \
         "{USER_NAME}"       "$USER_NAME"        \
         "{GROUP_NAME}"      "$GROUP_NAME"       \
         "{VSFTPD_LOG_FILE}" "$VSFTPD_LOG_FILE"  \
@@ -199,48 +201,79 @@ function create_vsftpd_conf() {
 
 #---------------------------------- USERS ----------------------------------#
 
-# Create vsftpd users based on the provided user list.
+# Create a new user with specified parameters.
 #
 # Usage:
-#   create_vsftpd_users <user_list>
+#   create_user <user_name> <group_name> <home_dir> <tag> [<user_id>]
+#
+# Parameters:
+#   - user_name:   the name of the user to be created.
+#   - group_name:  the name of the group for the user.
+#   - home_dir:    the home directory for the user.
+#   - tag:         the description or tag for the user.
+#   - user_id:     (optional) the user ID for the user.
+#                  If not provided, the user ID will be assigned automatically.
+#
+# Example:
+#   create_user "john_doe" "developers" "/home/john_doe" $QFTP_USER_TAG 1001
+#
+function create_user() {
+    local user_name=$1 group_name=$2 home_dir=$3 tag=$4 user_id=$5
+    case "$user_name" in
+        *':'*)
+            user_id=$(echo   "$user_name" | cut -d ':' -f 2)
+            user_name=$(echo "$user_name" | cut -d ':' -f 1)
+            adduser "$user_name" -D -H -G "$group_name" -h "$home_dir" -g "$tag" -s /sbin/nologin --uid "$user_id"
+            ;;
+        *)
+            adduser "$user_name" -D -H -G "$group_name" -h "$home_dir" -g "$tag" -s /sbin/nologin
+            ;;
+    esac
+}
+
+# Create QuickFtpServer users based on the provided user list.
+# (users are created as system users to be read by vsftpd via PAM.)
+#
+# Usage:
+#   create_qftp_users <user_list>
 #
 # Parameters:
 #   - user_list: List of users to be created, each line
 #                formatted as "username|password|resource".
 # Example:
-#   create_vsftpd_users "$CFG_USER_LIST"
+#   create_qftp_users "$CFG_USER_LIST"
 #
 # Notes:
 #   - Each line in 'user_list' should be "username|password|resource".
 #   - The resource field is optional and can be left empty.
 #   - If a user already exists in the system, an error will be generated.
+#   - All created users can be removed with the function remove_all_qftp_users.
 #
-function create_vsftpd_users() {
-    local user_list=$2    
+function create_qftp_users() {
+    local user_list=$1
     local chpasswd_message
     
-    message "Creating Linux users"
-    echo "$user_list" | while IFS='|' read -r name pass resource;
+    echo "$user_list" | while IFS='|' read -r user_name pass resource;
     do
         # skip if the username is empty
-        [[ -z "$name" ]] && continue
+        [[ -z "$user_name" ]] && continue
         
         # check if the username already exists in the system (must be unique)
-        id "$name" &>/dev/null  && \
-            fatal_error "Unable to create user '$name', that name is already in use by the system" \
+        id "$user_name" &>/dev/null  && \
+            fatal_error "Unable to create user '$user_name', that name is already in use by the system" \
                         "Please choose a different name"
         
         # create user and set password
-        adduser -D -H -g "$QFTP_USER_TAG" "$name" &>/dev/null
-        chpasswd_message=$(echo "$name:$pass" | chpasswd 2>&1)
+        create_user "$user_name" "$GROUP_NAME" "/home" "$QFTP_USER_TAG"
+        chpasswd_message=$(echo "$user_name:$pass" | chpasswd 2>&1)
         echo "      - $chpasswd_message"
     done
 }
 
-# Remove all vsftpd users from the system.
+# Remove all QuickFtpServer users from the system.
 #
 # Usage:
-#   remove_all_vsftpd_users
+#   remove_all_qftp_users
 #
 # Description:
 #   This function removes all users previously created for vsftpd.
@@ -248,19 +281,16 @@ function create_vsftpd_users() {
 #   file and removes them.
 #
 # Example:
-#   remove_all_vsftpd_users
+#   remove_all_qftp_users
 #
-# Requires:
-#   - $QFTP_USER_TAG: variable specifying the tag used to identify users.
-#
-function remove_all_vsftpd_users() {
-    local vsftpd_users=$(grep "$QFTP_USER_TAG" /etc/passwd)
+function remove_all_qftp_users() {
+    local qftp_users=$(grep "$QFTP_USER_TAG" /etc/passwd)
     
     # iterate over each linux user entry
-    echo "$vsftpd_users" | \
+    echo "$qftp_users" | \
     while IFS=':' read -r name pass uid gid gecos home shell
     do
-        # check if the user entry matches the vsftpd user tag
+        # check if the user entry matches the qftp user tag
         if [[ "$gecos" == "$QFTP_USER_TAG" ]]; then
             message "Removing old user: $name"
             deluser "$name" $>/dev/null
@@ -335,35 +365,28 @@ source "$SCRIPT_DIR/configreader.sh"
 echo
 echo "$0"
 
-# ensure that system user and group exist (USER_ID/GROUP_ID)
 message "Ensuring existence of system user/group [$USER_ID/$GROUP_ID]"
 ensure_system_user_and_group
 
-# activate log file for QuickFtpServer
-message "Outputting log from this script to: $QFTP_LOG_FILE"
+message "Activating the log file for this script: $QFTP_LOG_FILE"
 set_qftp_logfile "$QFTP_LOG_FILE"
 
-# change to the directory of the current script
 message "Switching to the script's directory: $SCRIPT_DIR"
 cd "$SCRIPT_DIR"
 
-
-# elimina cualquier antigua configuracion de vsdftpd que haya quedado
-message "Reiniciando la configuración de vsftpd"
+message "Removing any previous vsftpd configurations"
 rm -f "$VSFTPD_CONF_DIR/*"
-remove_all_vsftpd_users
+remove_all_qftp_users
 
-# carga la configuracion del usuario
-message "Cargando configuracion del usuario: $QFTP_CONFIG_FILE"
+message "Reading configuration file: $QFTP_CONFIG_FILE"
 for_each_config_var_in "$QFTP_CONFIG_FILE" process_config_var
 
-# create configuration file for vsftpd
-message "Creating configuration file: $VSFTPD_CONF_FILE"
+message "Creating vsftpd configuration file: $VSFTPD_CONF_FILE"
 create_vsftpd_conf "$VSFTPD_CONF_FILE"
 
-create_vsftpd_users "$VSFTPD_USERS_DB" "$CFG_USER_LIST"
+message "Creating Linux users"
+create_qftp_users "$CFG_USER_LIST"
 
-# start the vsftpd server as a service.
 message "Starting FTP service"
 trap stop_vsftpd SIGINT SIGTERM
 start_vsftpd "$VSFTPD_CONF_FILE"
