@@ -1,15 +1,48 @@
 #!/bin/sh
+# File    : entrypoint.sh
+# Brief   : Entry point script for QuickFtpServer
+# Author  : Martin Rizzo | <martinrizzo@gmail.com>
+# Date    : Feb 6, 2024
+# Repo    : https://github.com/martin-rizzo/QuickFtpServer
+# License : MIT
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+#                             QuickFtpServer
+#          A lightweight, easy-to-configure FTP server using Docker
+#
+#     Copyright (c) 2024 Martin Rizzo
+#
+#     Permission is hereby granted, free of charge, to any person obtaining
+#     a copy of this software and associated documentation files (the
+#     "Software"), to deal in the Software without restriction, including
+#     without limitation the rights to use, copy, modify, merge, publish,
+#     distribute, sublicense, and/or sell copies of the Software, and to
+#     permit persons to whom the Software is furnished to do so, subject to
+#     the following conditions:
+#
+#     The above copyright notice and this permission notice shall be
+#     included in all copies or substantial portions of the Software.
+#
+#     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#     EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+#     MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+#     IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+#     CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+#     TORT OR OTHERWISE, ARISING FROM,OUT OF OR IN CONNECTION WITH THE
+#     SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+#
+#  # HOST FIREWALL
+#  firewall-cmd 'create' ftp-pasv
+#  firewall-cmd 'add ports' ftp-pasv 21000-21007/tcp --permanent
+#  firewall-cmd --add-service=ftp-pasv --permanent
+#_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
-## HOST
-# setsebool -P ftpd_full_access on
-# firewall-cmd 'create' ftp-pasv
-# firewall-cmd 'add ports' ftp-pasv 21000-21007/tcp --permanent
 
-## CONTAINER
-# /app/ftp-data
-# /app/ftp-logs
-# /app/ftp.config
+# CONSTANTS
+CONFIG_NAME=ftp.config
+QFTP_USER_TAG=__QFTP-USER__
 
+# MAIN USER
 USER_ID="${USER_ID:-$(id -u)}"
 GROUP_ID="${GROUP_ID:-$(id -g)}"
 USER_NAME=${USER_NAME:-'q-ftp'}
@@ -25,14 +58,12 @@ SCRIPT_DIR=$(dirname "$0")
 PROJECT_NAME=QuickFtpServer
 
 # FILES
-PID_FILE="$RUN_DIR/vsftpd.pid"
-VSFTPD_CONF_FILE="$VSFTPD_CONF_DIR/vsftpd.conf"
-VSFTPD_USERS_DB="$VSFTPD_CONF_DIR/virtual-users.db"
-VSFTPD_LOG_FILE="$LOG_DIR/vsftpd.log"
-
+QFTP_CONFIG_FILE="$APPDATA_DIR/$CONFIG_NAME"
 QFTP_LOG_FILE="$LOG_DIR/quickftpserver.log"
-QFTP_CONFIG_FILE="$APPDATA_DIR/ftp.config"
-QFTP_USER_TAG="__QFTP-USER__"
+VSFTPD_CONF_FILE="$VSFTPD_CONF_DIR/vsftpd.conf"
+VSFTPD_LOG_FILE="$LOG_DIR/vsftpd.log"
+PID_FILE="$RUN_DIR/vsftpd.pid"
+
 
 #-------------------------------- HELPERS ----------------------------------#
 
@@ -231,42 +262,68 @@ function create_user() {
     esac
 }
 
+
+function get_resource_info() {
+    local resource_list=$1 resource=$2
+    echo "$resource_list" | grep "^$resource|"
+}
+
 # Create QuickFtpServer users based on the provided user list.
-# (users are created as system users to be read by vsftpd via PAM.)
+# (users are created as system users to be read by vsftpd via PAM)
 #
 # Usage:
-#   create_qftp_users <user_list>
+#   create_qftp_users <user_list> <resource_list>
 #
 # Parameters:
-#   - user_list: List of users to be created, each line
-#                formatted as "username|password|resource".
+#   - user_list     : List of users to be created. Each line should be formatted as
+#                     "username|password|resource"
+#   - resource_list : List of available resources. Each line should be formatted as
+#                     "resname|resdir|text".
 # Example:
-#   create_qftp_users "$CFG_USER_LIST"
+#   create_qftp_users "$CFG_USER_LIST" "$CFG_RESOURCE_LIST"
 #
 # Notes:
-#   - Each line in 'user_list' should be "username|password|resource".
-#   - The resource field is optional and can be left empty.
 #   - If a user already exists in the system, an error will be generated.
 #   - All created users can be removed with the function remove_all_qftp_users.
 #
 function create_qftp_users() {
-    local user_list=$1
-    local chpasswd_message
+    local user_list=$1 resource_list=$2
+    local chpasswd_message resource_info home_dir resdir 
     
+    # iterate over each line of the user list
     echo "$user_list" | while IFS='|' read -r user_name pass resource;
     do
         # skip if the username is empty
         [[ -z "$user_name" ]] && continue
         
         # check if the username already exists in the system (must be unique)
-        id "$user_name" &>/dev/null  && \
-            fatal_error "Unable to create user '$user_name', that name is already in use by the system" \
+        id "$user_name" &>/dev/null && \
+            fatal_error "Unable to create user '$user_name', as that name is already in use by the system" \
                         "Please choose a different name"
         
         # create user and set password
         create_user "$user_name" "$GROUP_NAME" "/home" "$QFTP_USER_TAG"
         chpasswd_message=$(echo "$user_name:$pass" | chpasswd 2>&1)
         echo "      - $chpasswd_message"
+        
+        # get resource info
+        resource_info=$(get_resource_info "$resource_list" "$resource")
+        [[ -z "$resource_info" ]] && \
+            fatal_error "Resource '$resource' was not defined" \
+                        "Please review the $CONFIG_NAME file"
+        resdir=$(echo "$resource_info" | cut -d '|' -f 2)
+        [[ -z "$resdir" ]] && \
+            fatal_error "Resource '$resource' does not have an associated directory" \
+                        "Please review the $CONFIG_NAME file"
+         
+        # define the home directory for the user based on the resource directory
+        home_dir="$APPDATA_DIR/$resdir"
+        [[ ! -d "$home_dir" ]] && \
+            fatal_error "Directory '$resdir' associated with resource '$resource' does not exist." \
+                        "Please review the $CONFIG_NAME file."
+        
+        # link the user's home directory
+        ln -s "$home_dir" "/home/$user_name"
     done
 }
 
@@ -307,7 +364,7 @@ function process_config_var() {
     case $varname in
         RESOURCE)
             value=$(format_value "$value" name dir txt) || return $ERROR
-            CFG_RESOURCES="${CFG_RESOURCES}${value}$NEWLINE"
+            CFG_RESOURCE_LIST="${CFG_RESOURCE_LIST}${value}$NEWLINE"
             ;;
         USER)
             value=$(format_value "$value" user pass name) || return $ERROR
@@ -376,6 +433,7 @@ cd "$SCRIPT_DIR"
 
 message "Removing any previous vsftpd configurations"
 rm -f "$VSFTPD_CONF_DIR/*"
+rm -f "/home/*"
 remove_all_qftp_users
 
 message "Reading configuration file: $QFTP_CONFIG_FILE"
@@ -385,7 +443,7 @@ message "Creating vsftpd configuration file: $VSFTPD_CONF_FILE"
 create_vsftpd_conf "$VSFTPD_CONF_FILE"
 
 message "Creating Linux users"
-create_qftp_users "$CFG_USER_LIST"
+create_qftp_users "$CFG_USER_LIST" "$CFG_RESOURCE_LIST"
 
 message "Starting FTP service"
 trap stop_vsftpd SIGINT SIGTERM
