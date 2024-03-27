@@ -87,6 +87,10 @@ fatal_error() {
     exit 1
 }
 
+is_digit() {
+    [[ "$1" =~ ^[0-9]$ ]]
+}
+
 # Checks if a Docker container is running
 docker_container_is_running() {
     local status=$(docker container inspect --format='{{.State.Status}}' "$1" 2>/dev/null)
@@ -264,15 +268,20 @@ Commands:
   build            Build the Docker image
   clean            Clear Docker resources
   list             List Docker information
-  run              Run the Docker container (equivalent to 'example1')
-  test<number>     Alias for 'example<number>'
-  example<number>  Run the example specified by <number>
+  run              Run the default Docker container example
+  run[number]      Run the example specified by [number]
   stop             Stop the Docker container
   restart          Restart the Docker container
   console          Open a console in the Docker container
   logs             Show Docker container logs
   exec             Execute a command in the Docker container
   status           Show the status of the Docker container
+  
+  To clean Docker resources:
+    ./docker-cmd.sh clean
+
+  To run the Docker container with example 2:
+    ./docker-cmd.sh run2
 "
 
 # check if the user requested help or the image version
@@ -307,24 +316,18 @@ while [[ $# -gt 0 ]]; do
             clear_docker_resources
             ;;
         run)
-            run_example 1
-            ;;
-        test*)
-            if [[ $param != 'test' ]]; then
-                run_example "${param#test}"
-            elif [[ $# -gt 1 ]]; then
-                run_example "$2" ; shift
+            if [[ $# -gt 1 ]] && is_digit "$2"; then
+                shift
+                run_example $1
             else
-                fatal_error "A test number is required after the 'test' command."
+                run_example
             fi
             ;;
-        example*)
-            if [[ $param != 'example' ]]; then
-                run_example "${param#example}"
-            elif [[ $# -gt 1 ]]; then
-                run_example "$2" ; shift
+        run[0-9])
+            if is_digit "${param#run}"; then
+                run_example ${param#run}
             else
-                fatal_error "A example number is required after the 'example' command."
+                run_example
             fi
             ;;
         stop)
