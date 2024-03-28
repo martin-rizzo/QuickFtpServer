@@ -123,9 +123,10 @@ function for_each_config_var_in() {
 #
 # The function iterates through each parameter in the provided string,
 # applying the corresponding format rules. The available format rules are:
-#    - dir  : Removes leading and trailing slashes from a directory path.
-#    - txt  : Removes leading and trailing double quotes from a text string.
-#    - bool : Standardizes it to either TRUE or FALSE.
+#    - reslist : Removes all spaces.
+#    - dir     : Removes leading and trailing slashes from a directory path.
+#    - txt     : Removes leading and trailing double quotes from a text string.
+#    - bool    : Standardizes it to either TRUE or FALSE.
 #    - name|user|pass: No modification is applied.
 #
 function format_value() {
@@ -137,14 +138,25 @@ function format_value() {
         local format=$2 ; shift
         param=$(trim "$param")
         case $format in
-            dir)
+        
+            # resource list - (remove any whitespace)
+            reslist) 
+                param=$(echo "$param" | sed 's/ //g')
+                ;;
+                
+            # directory - (remove leading and trailing slashes)
+            dir)     
                 param=${param#/}
                 param=${param%/}
                 ;;
-            txt)
+                
+            # text - (remove double quotes)
+            txt)     
                 param=${param#\"}
                 param=${param%\"}
                 ;;
+                
+            # boolean - (standardize to TRUE or FALSE)                
             bool)
                 param=$(toupper "$param")
                 if [[ $param == TRUE || $param == YES ]]; then
@@ -155,11 +167,16 @@ function format_value() {
                     return 1
                 fi
                 ;;
+                
+            # user name/pass - (no modification needed)
             name|user|pass)
                 ;;
+                
+            # default case: continue to next iteration
             *)
                 continue
                 ;;
+                
         esac
         [[ "$first" ]] && echo -n "$param" || echo -n "|$param"
         first=
@@ -168,6 +185,11 @@ function format_value() {
     echo
     IFS=$OLD_IFS
     return 0
+}
+
+function find_config_values() {
+    local value_name=$1 value_list=$2
+    echo "$value_list" | grep "^$value_name|"
 }
 
 
