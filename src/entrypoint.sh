@@ -39,23 +39,26 @@
 
 
 # CONSTANTS
+PROJECT_NAME=QuickFtpServer
 CONFIG_NAME=ftp.config
+MAIN_USER=q-ftp
+ANON_VIRTUAL_USER=ftp
 QFTP_USER_TAG=__QFTP-USER__
 
 # MAIN USER
 USER_ID="${USER_ID:-$(id -u)}"
 GROUP_ID="${GROUP_ID:-$(id -g)}"
-USER_NAME=${USER_NAME:-'q-ftp'}
-GROUP_NAME=${GROUP_NAME:-'q-ftp'}
+USER_NAME=${USER_NAME:-$MAIN_USER}
+GROUP_NAME=${GROUP_NAME:-$MAIN_USER}
 
 # DIRECTORIES
 VSFTPD_CONF_DIR=/etc/vsftpd
 APPDATA_DIR=/app
 RUN_DIR=/run
+VIRTUAL_USERS_DIR=/home
 LOG_DIR="$APPDATA_DIR/${LOG_DIR:-log}"
-HOME_DIR="$APPDATA_DIR/${HOME_DIR:-ftp-data}"
+DEFAULT_HOME_DIR="$APPDATA_DIR/ftp-data"
 SCRIPT_DIR=$(dirname "$0")
-PROJECT_NAME=QuickFtpServer
 
 # FILES
 QFTP_CONFIG_FILE="$APPDATA_DIR/$CONFIG_NAME"
@@ -63,9 +66,17 @@ QFTP_LOG_FILE="$LOG_DIR/quickftpserver.log"
 VSFTPD_CONF_FILE="$VSFTPD_CONF_DIR/vsftpd.conf"
 VSFTPD_LOG_FILE="$LOG_DIR/vsftpd.log"
 PID_FILE="$RUN_DIR/vsftpd.pid"
+TEMP_FILE=$(mktemp /tmp/tempfile.XXXXXX)
+
+# CONFIG VARS
+CFG_ANON=
+CFG_ANON_ENABLED=NO
+CFG_USER_LIST=
+CFG_RESOURCE_LIST=
+CFG_PASV=NO
 
 
-#-------------------------------- HELPERS ----------------------------------#
+#---------------------------- CONSOLE MESSAGES -----------------------------#
 
 RED='\e[1;31m'
 GREEN='\e[1;32m' 
@@ -103,17 +114,21 @@ function error() {
 
 # Displays a fatal error message and exits the script with status code 1
 function fatal_error() {
-    local message=$1
-    error "$message"
+    local error_message=$1 info_message=$2
+    error "$error_message"
+    [[ -n "$info_message" ]] && message "$info_message"
     exit 1
 }
 
+
+#-------------------------------- HELPERS ----------------------------------#
+
 # Validates if a string represents an integer number.
-validate_integer() {
+function validate_integer() {
   [[ $1 =~ ^[0-9]+$ ]]
 }
 
-run_as_user() {
+function run_as_user() {
     local command=$1
     su -s /bin/sh -pc "$command" - $USER_NAME
 }
@@ -143,14 +158,7 @@ function print_template() {
     echo "$template"
 }
 
-
-
-#vsftpd /etc/vsftpd/vsftpd.conf -xferlog_enable=YES -vsftpd_log_file=$(tty)
-
-#vsftpd -xferlog_enable=YES -vsftpd_log_file=$(tty)
-
-
-ensure_system_user_and_group() {
+function ensure_system_user_and_group() {
 
     # validate that USER_ID and GROUP_ID are integer values
     if ! validate_integer "$USER_ID" ; then
@@ -169,12 +177,10 @@ ensure_system_user_and_group() {
     fi
     if ! getent passwd "$USER_ID" &>/dev/null; then
         message "Creating system user  : $USER_NAME [$USER_ID]"
-        create_user "$USER_NAME:$USER_ID" "$GROUP_NAME" "$HOME_DIR" "QuickFtpServer"
+        create_user "$USER_NAME:$USER_ID" "$GROUP_NAME" "$DEFAULT_HOME_DIR" "QuickFtpServer"
     else
         USER_NAME=$(getent passwd $user_id | cut -d: -f1)
     fi
-    mkdir -p "$HOME_DIR"
-    #chown "$USER_NAME:$GROUP_NAME" "$HOME_DIR"
 }
 
 # Set the logfile for QuickFtpServer.
@@ -222,11 +228,12 @@ function create_vsftpd_conf() {
     [[ -z   "$output_file"   ]] && fatal_error "create_vsftpd_conf() requires a parameter with the output file"
     [[ ! -f "$template_file" ]] && fatal_error "create_vsftpd_conf() requires the file $PWD/$template_file"
     
-    print_template "$(cat "$template_file")"    \
-        "{ANON_USER_NAME}"  "$USER_NAME"        \
-        "{USER_NAME}"       "$USER_NAME"        \
-        "{GROUP_NAME}"      "$GROUP_NAME"       \
-        "{VSFTPD_LOG_FILE}" "$VSFTPD_LOG_FILE"  \
+    print_template "$(cat "$template_file")"                         \
+        "{MAIN_USER_NAME}"  "$USER_NAME"                             \
+        "{MAIN_GROUP_NAME}" "$GROUP_NAME"                            \
+        "{VSFTPD_LOG_FILE}" "$VSFTPD_LOG_FILE"                       \
+        "{ANON_ENABLED}"    "$CFG_ANON_ENABLED"                      \
+        "{ANON_HOME}"       "/$VIRTUAL_USERS_DIR/$ANON_VIRTUAL_USER" \
         > "$output_file"
 }
 
@@ -288,23 +295,29 @@ function get_resource_info() {
 #
 function create_qftp_users() {
     local user_list=$1 resource_list=$2
-    local chpasswd_message resource_info home_dir resdir 
+    local chpasswd_message resource_info home_dir resdir
     
     # iterate over each line of the user list
-    echo "$user_list" | while IFS='|' read -r user_name pass resource;
+    echo "$user_list" > $TEMP_FILE
+    while IFS='|' read -r user_name pass resource;
     do
+    
         # skip if the username is empty
         [[ -z "$user_name" ]] && continue
+
+        if [[ "$user_name" != ftp ]]; then
         
-        # check if the username already exists in the system (must be unique)
-        id "$user_name" &>/dev/null && \
-            fatal_error "Unable to create user '$user_name', as that name is already in use by the system" \
-                        "Please choose a different name"
+            # check if the username already exists in the system (must be unique)
+            id "$user_name" &>/dev/null && \
+                fatal_error "Unable to create user '$user_name', as that name is already in use by the system" \
+                            "Please choose a different name"
         
-        # create user and set password
-        create_user "$user_name" "$GROUP_NAME" "/home" "$QFTP_USER_TAG"
-        chpasswd_message=$(echo "$user_name:$pass" | chpasswd 2>&1)
-        echo "      - $chpasswd_message"
+            # create user and set password
+            create_user "$user_name" "$GROUP_NAME" "$DEFAULT_HOME_DIR" "$QFTP_USER_TAG"
+            chpasswd_message=$(echo "$user_name:$pass" | chpasswd 2>&1)
+            echo "      - $chpasswd_message"
+            
+        fi
         
         # get resource info
         resource_info=$(get_resource_info "$resource_list" "$resource")
@@ -323,8 +336,13 @@ function create_qftp_users() {
                         "Please review the $CONFIG_NAME file."
         
         # link the user's home directory
-        ln -s "$home_dir" "/home/$user_name"
-    done
+        ln -s "$home_dir" "/$VIRTUAL_USERS_DIR/$user_name"
+        # sudo -u otheruser test -w /file/to/test || {
+        #  echo "otheruser cannot write the file"
+        # }        
+        
+    done < $TEMP_FILE
+    rm $TEMP_FILE
 }
 
 # Remove all QuickFtpServer users from the system.
@@ -355,41 +373,13 @@ function remove_all_qftp_users() {
     done
 }
 
-#-------------------------- READING CONFIGURATION --------------------------#
-
-function process_config_var() {
-    local varname=$1 value=$2
-    local ERROR=1
-    
-    case $varname in
-        RESOURCE)
-            value=$(format_value "$value" name dir txt) || return $ERROR
-            CFG_RESOURCE_LIST="${CFG_RESOURCE_LIST}${value}$NEWLINE"
-            ;;
-        USER)
-            value=$(format_value "$value" user pass name) || return $ERROR
-            CFG_USER_LIST="${CFG_USER_LIST}${value}$NEWLINE"
-            ;;
-        PASV)
-            value=$(format_value "$value" bool) || return $ERROR
-            CFG_PASV=$value
-            ;;
-        PRINT_ERROR)
-            echo "ERROR: $value"
-            ;;
-    esac
-}
-
-
-
+#--------------------------- CONTROLLING VSFTPD ----------------------------#
 
 function start_vsftpd() {
     local conf_file=$1
     [[ -z "$conf_file" ]] && fatal_error \
     "start_vsftpd() requires a parameter with the configuration filename"
     
-    message  "Setting FTP directory permissions to read-only"
-    chmod u-w "$HOME_DIR"
     message "Launching vsftpd server"
     vsftpd "$conf_file" &
     local pid=$!
@@ -403,12 +393,42 @@ function stop_vsftpd() {
     kill -SIGTERM "$pid"
     wait "$pid"
     echo " * vsftp stopped"
-    echo " * making ftp directory writtable"
-    chmod u+x "$HOME_DIR"
 }
 
 
+#-------------------------- READING CONFIGURATION --------------------------#
 
+function process_config_var() {
+    local varname=$1 value=$2
+    local ERROR=1
+    
+    case $varname in
+        RESOURCE)
+            value=$(format_value "$value" name dir txt) || return $ERROR
+            CFG_RESOURCE_LIST="${CFG_RESOURCE_LIST}${value}$NEWLINE"
+            ;;
+        USER)
+            value=$(format_value "$value" user pass name) || return $ERROR
+            case "$value" in
+                ftp\|*)
+                    CFG_ANON=$value
+                    CFG_ANON_ENABLED=YES
+                    CFG_USER_LIST="${CFG_USER_LIST}${value}$NEWLINE"
+                    ;;
+                *)
+                    CFG_USER_LIST="${CFG_USER_LIST}${value}$NEWLINE"
+                    ;;
+            esac
+            ;;
+        PASV)
+            value=$(format_value "$value" bool) || return $ERROR
+            CFG_PASV=$value
+            ;;
+        PRINT_ERROR)
+            echo "ERROR: $value"
+            ;;
+    esac
+}
 
 
 #===========================================================================#
@@ -433,7 +453,7 @@ cd "$SCRIPT_DIR"
 
 message "Removing any previous vsftpd configurations"
 rm -f "$VSFTPD_CONF_DIR/*"
-rm -f "/home/*"
+rm -f "/$VIRTUAL_USERS_DIR/*"
 remove_all_qftp_users
 
 message "Reading configuration file: $QFTP_CONFIG_FILE"
