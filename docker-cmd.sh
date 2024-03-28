@@ -47,7 +47,7 @@ IMAGE_VER='0.1'
 CONTAINER_NAME='ftp-server'
 CONTAINER_PARAMETERS="
     -e USER_ID=$(id -u) -e GROUP_ID=$(id -g)
-    -v {DIR_TO_MOUNT}:/app:Z
+    -v {DIR_TO_MOUNT}:/appdata:Z
     -p 20:20
     -p 21:21
     -p 21000-21007:21000-21007
