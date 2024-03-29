@@ -133,6 +133,23 @@ function run_as_user() {
     su -s /bin/sh -pc "$command" - $USER_NAME
 }
 
+# Check if a file (or directory) is writable by a specified user.
+#
+# Usage:
+#   is_writable <filepath> <user>
+#
+# Parameters:
+#   - filepath : The path to the file to be checked for write permission.
+#   - user     : The user whose write permission needs to be checked.
+#
+# Example:
+#   is_writable "/path/to/file.txt" "bob"
+#
+function is_writable() {
+    local filepath=$1 user=$2
+    su "$user" -s /bin/sh -c "test -w \"$filepath\""
+}
+
 # Replace placeholders in a template with corresponding values and print the resulting string.
 #
 # Usage:
@@ -196,31 +213,6 @@ function add_system_user() {
         adduser "$user_name" -D -H -G "$group_name" -h "$home_dir" -g "$tag" -s /sbin/nologin --uid "$user_id"
     else
         adduser "$user_name" -D -H -G "$group_name" -h "$home_dir" -g "$tag" -s /sbin/nologin
-    fi
-}
-
-function ensure_system_user_and_group() {
-
-    # validate that USER_ID and GROUP_ID are integer values
-    if ! validate_integer "$USER_ID" ; then
-        fatal_error "USER_ID debe ser un valor entero"
-    fi
-    if ! validate_integer "$GROUP_ID" ; then
-        fatal_error "GROUP_ID debe ser un valor entero"
-    fi
-    
-    # create USER_ID and GROUP_ID if they don't exist
-    if ! getent group $GROUP_ID $>/dev/null; then
-        message "Creating system group : $GROUP_NAME [$GROUP_ID]"
-        addgroup $GROUP_NAME -g $GROUP_ID
-    else
-        GROUP_NAME=$(getent group $GROUP_ID | cut -d: -f1)
-    fi
-    if ! getent passwd "$USER_ID" &>/dev/null; then
-        message "Creating system user  : $USER_NAME [$USER_ID]"
-        add_system_user "$USER_NAME:$USER_ID" "$GROUP_NAME" "$DEFAULT_HOME_DIR" "QuickFtpServer"
-    else
-        USER_NAME=$(getent passwd $user_id | cut -d: -f1)
     fi
 }
 
@@ -308,6 +300,7 @@ function create_vsftpd_conf() {
 function create_virtual_user() {
     local user_name=$1 user_pass=$2 user_resources=$3 resource_list=$4 options=$5
     local chpasswd_message resource_values resdir home_dir
+    local test_readonly force_readonly_dir
 
     IFS=',' ; for opt in $options; do
         case $opt in
@@ -318,8 +311,12 @@ function create_virtual_user() {
                 chpasswd_message=$(echo "$user_name:$user_pass" | chpasswd 2>&1)
                 echo "      - $chpasswd_message"
                 ;;
+                
+            test_readonly)
+                test_readonly=true
+                ;;
             
-            # debera forzar a que el home directory sea read-only
+            # force the home directory to be read-only
             force_readonly_dir)
                 force_readonly_dir=true
                 ;;
@@ -327,6 +324,7 @@ function create_virtual_user() {
         esac
     done
     
+    # loop through user resources.
     IFS=',' ; for resource in $user_resources; do
     
         # get resource info
@@ -349,13 +347,55 @@ function create_virtual_user() {
             fatal_error "El usuario '$user_name' tiene mas de un recurso asignado" \
                         "Please review the $CONFIG_NAME file."
 
+        if is_writable "$home_dir" "$MAIN_USER" ; then
+            warning "Directory '$home_dir' is writable and potentially unsafe"
+        fi
+        
         # link the user's home directory
         ln -s "$home_dir" "/$VIRTUAL_USERS_DIR/$user_name"
-        # sudo -u otheruser test -w /file/to/test || {
-        #  echo "otheruser cannot write the file"
-        # }        
 
     done
+}
+
+# Ensure the existence of the main system user and group.
+#
+# Usage:
+#   ensure_system_user_and_group
+#
+# Description:
+#   If the USER_ID and GROUP_ID do not exist, it creates them using the
+#   provided IDs and names.
+#
+# Globals:
+#   USER_ID    : The ID of the system user.
+#   USER_NAME  : The name of the system user.
+#   GROUP_ID   : The ID of the system group.
+#   GROUP_NAME : The name of the system group.
+#   DEFAULT_HOME_DIR : Default home directory for the system user.
+#
+function ensure_system_user_and_group() {
+
+    # validate that USER_ID and GROUP_ID are integer values
+    if ! validate_integer "$USER_ID" ; then
+        fatal_error "USER_ID debe ser un valor entero"
+    fi
+    if ! validate_integer "$GROUP_ID" ; then
+        fatal_error "GROUP_ID debe ser un valor entero"
+    fi
+    
+    # create USER_ID and GROUP_ID if they don't exist
+    if ! getent group $GROUP_ID $>/dev/null; then
+        message "Creating system group : $GROUP_NAME [$GROUP_ID]"
+        addgroup $GROUP_NAME -g $GROUP_ID
+    else
+        GROUP_NAME=$(getent group $GROUP_ID | cut -d: -f1)
+    fi
+    if ! getent passwd "$USER_ID" &>/dev/null; then
+        message "Creating system user  : $USER_NAME [$USER_ID]"
+        add_system_user "$USER_NAME:$USER_ID" "$GROUP_NAME" "$DEFAULT_HOME_DIR" "QuickFtpServer"
+    else
+        USER_NAME=$(getent passwd $user_id | cut -d: -f1)
+    fi
 }
 
 # Create QuickFtpServer users based on the provided user list.
