@@ -83,7 +83,7 @@ GREEN='\e[1;32m'
 YELLOW='\e[1;33m'
 BLUE='\e[1;34m'
 DEFAULT_COLOR='\e[0m'
-PADDING='  '
+PADDING='   '
 
 # Displays a message
 function message() {
@@ -97,7 +97,7 @@ function message() {
 # Displays a warning message
 function warning() {
     local message=$1 timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-    echo -e "${PADDING}${YELLOW}WARNING:${DEFAULT_COLOR} $message"
+    echo -e "${BLUE}[${YELLOW}WARNING${BLUE}]${YELLOW} $message${DEFAULT_COLOR}"
     if [[ -n "$QFTP_LOG_FILE" ]]; then
         echo "$timestamp - WARNING: $message" >> "$QFTP_LOG_FILE"
     fi
@@ -216,6 +216,54 @@ function add_system_user() {
     fi
 }
 
+# Verify the permissions of dirs to ensure they are read-only for the given user.
+#
+# Usage:
+#   verify_read_only_directories <directories> <user> <force_readonly>
+#
+# Parameters:
+#   - directories    : Colon-separated list of directories to be verified.
+#   - user           : Username of the user whose permissions are being verified.
+#   - force_readonly : Flag to force directories to be read-only if they are writable.
+#
+# Example:
+#   verify_read_only_directories "/path/to/dir1:/path/to/dir2" "john" true
+#
+# Notes:
+#   - If a directory path is prefixed with '!', it signifies that a fatal error
+#     will occur if the directory is not read-only. Otherwise, only a warning
+#     is displayed.
+#
+function verify_read_only_directories() {
+    local directories=$1 user=$2 force_readonly=$3
+    local writable_is_fatal
+    
+    IFS=':' ; for directory in $directories ; do
+        [[ -z "$directory" ]] && continue
+        if is_writable "$directory" "$user"; then
+            
+            # si el dir esta encabezado por '!' entonces habra un error fatal si no es read-only,
+            # en caso contrario solo se muestra un warning
+            if [[ "$directory" == '!'* ]]; then
+                directory="${directory#!}"
+                writable_is_fatal=true
+            else
+                writable_is_fatal=false
+            fi
+            
+            if [[ $writable_is_fatal == false ]]; then
+                warning "Directory '$directory' is writable and potentially unsafe"
+            elif [[ $force_readonly == true ]]; then
+                echo "Forcing '$directory' to be read only"
+                chmod a-w "$directory"
+            else
+                fatal_error "Directory '$directory' must be read-only by main user"
+            fi
+            
+        fi
+    done
+}
+
 # Set the logfile for QuickFtpServer.
 #
 # Usage:
@@ -285,48 +333,47 @@ function create_vsftpd_conf() {
 #                      "resname|resdir|text"
 #   - options        : Comma-separated list of options for additional configurations.
 #
+# Globals:
+#   DIRS_TO_VERIFY : Directories of the created virtual user are appended to
+#                    this list to verify them during post-processing.
 # Example:
-#   create_virtual_user "john" "pass123" "res1,res2" "$RESOURCE_LIST" sys_user,force_readonly_dir
+#   create_virtual_user "john" "pass123" "res1,res2" "$RESOURCE_LIST" sys_user,writable_is_fatal
 #
 # Notes:
-#   - If 'sys_user' option is provided, the script will create a system user with the given
-#     username and password.
-#   - If 'force_readonly_dir' option is provided, the user's home directory will be set as read-only.
-#   - Each resource specified in 'user_resources' should be present in the 'resource_list'.
-#   - Each virtual user can only be associated with one resource. If a user is assigned multiple
-#     resources, an error will be generated.
-#   - Ensure proper permissions are set on resource directories to prevent unauthorized access.
+#   - If 'sys_user' option is provided, the script will create a system user with
+#     the given username and password.
+#   - If 'writable_is_fatal' option is provided, any attempt to create a virtual
+#     userwith a writable home directory will result in a fatal error.
+#   - Every resource listed in 'user_resources' must exist in the 'resource_list'.
+#   - Each virtual user can only be associated with one resource. If a user is
+#     assigned multiple resources, an error will be generated.
 #
 function create_virtual_user() {
     local user_name=$1 user_pass=$2 user_resources=$3 resource_list=$4 options=$5
-    local chpasswd_message resource_values resdir home_dir
-    local test_readonly force_readonly_dir
-
+    local chpasswd_message resource_values resdir home_dir writable_is_fatal
+    
+    # loop a travez de las opciones suministradas
     IFS=',' ; for opt in $options; do
         case $opt in
-        
-            # create user and set password
+            
+            # sys_user -> create user and set password
             sys_user)
                 add_system_user "$user_name" "$GROUP_NAME" "$DEFAULT_HOME_DIR" "$QFTP_USER_TAG"
                 chpasswd_message=$(echo "$user_name:$user_pass" | chpasswd 2>&1)
                 echo "      - $chpasswd_message"
                 ;;
-                
-            test_readonly)
-                test_readonly=true
+            
+            # writable_is_fatal -> fatal error if the home directory is writable
+            writable_is_fatal)
+                writable_is_fatal=true
                 ;;
             
-            # force the home directory to be read-only
-            force_readonly_dir)
-                force_readonly_dir=true
-                ;;
-                
         esac
     done
     
     # loop through user resources.
     IFS=',' ; for resource in $user_resources; do
-    
+        
         # get resource info
         resource_values=$(find_config_values "$resource" "$resource_list")
         [[ -z "$resource_values" ]] && \
@@ -336,24 +383,25 @@ function create_virtual_user() {
         [[ -z "$resdir" ]] && \
             fatal_error "Resource '$resource' does not have an associated directory" \
                         "Please review the $CONFIG_NAME file"
-            
+        
         # define the home directory for the user based on the resource directory
         home_dir="$APPDATA_DIR/$resdir"
         [[ ! -d "$home_dir" ]] && \
             fatal_error "Directory '$resdir' associated with resource '$resource' does not exist." \
                         "Please review the $CONFIG_NAME file."
-
+        
         [[ -e "/$VIRTUAL_USERS_DIR/$user_name" ]] && \
             fatal_error "El usuario '$user_name' tiene mas de un recurso asignado" \
                         "Please review the $CONFIG_NAME file."
-
-        if is_writable "$home_dir" "$MAIN_USER" ; then
-            warning "Directory '$home_dir' is writable and potentially unsafe"
-        fi
         
         # link the user's home directory
         ln -s "$home_dir" "/$VIRTUAL_USERS_DIR/$user_name"
-
+        
+        # add the directory to the list
+        # (if 'writable_is_fatal' then prefix it with '!')
+        [[ "$writable_is_fatal" == true ]] && home_dir="!{home_dir}"
+        DIRS_TO_VERIFY="${DIRS_TO_VERIFY}:${home_dir}"
+        
     done
 }
 
@@ -419,6 +467,8 @@ function ensure_system_user_and_group() {
 function create_qftp_users() {
     local user_list=$1 resource_list=$2
     
+    DIRS_TO_VERIFY=
+    
     # iterate over each line of the user list
     echo "$user_list" > $TEMP_FILE
     while IFS='|' read -r user_name user_pass user_resources;
@@ -437,6 +487,9 @@ function create_qftp_users() {
         
     done < $TEMP_FILE
     rm $TEMP_FILE
+    
+    verify_read_only_directories "$DIRS_TO_VERIFY" "$MAIN_USER" 'false'
+    
 }
 
 # Remove all QuickFtpServer users from the system.
