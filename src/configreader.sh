@@ -160,9 +160,9 @@ function format_value() {
             bool)
                 param=$(toupper "$param")
                 if [[ $param == TRUE || $param == YES ]]; then
-                    param=TRUE
+                    param=true
                 elif [[ $param == FALSE || $param == NO ]]; then
-                    param=FALSE
+                    param=false
                 else
                     return 1
                 fi

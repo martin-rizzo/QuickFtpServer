@@ -69,19 +69,20 @@ PID_FILE="$RUN_DIR/vsftpd.pid"
 TEMP_FILE=$(mktemp /tmp/tempfile.XXXXXX)
 
 # CONFIG VARS
-CFG_ANON=
-CFG_ANON_ENABLED=NO
 CFG_USER_LIST=
 CFG_RESOURCE_LIST=
-CFG_PASV=NO
+CFG_PASV=false
+CFG_ANON_ENABLED=false
+CFG_FIX_WRITABLE_ROOT=false
 
 
 #---------------------------- CONSOLE MESSAGES -----------------------------#
 
 RED='\e[1;31m'
-GREEN='\e[1;32m' 
+GREEN='\e[1;32m'
 YELLOW='\e[1;33m'
 BLUE='\e[1;34m'
+CYAN='\e[1;36m'
 DEFAULT_COLOR='\e[0m'
 PADDING='   '
 
@@ -97,7 +98,7 @@ function message() {
 # Displays a warning message
 function warning() {
     local message=$1 timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-    echo -e "${BLUE}[${YELLOW}WARNING${BLUE}]${YELLOW} $message${DEFAULT_COLOR}"
+    echo -e "${CYAN}[${YELLOW}WARNING${CYAN}]${YELLOW} $message${DEFAULT_COLOR}"
     if [[ -n "$QFTP_LOG_FILE" ]]; then
         echo "$timestamp - WARNING: $message" >> "$QFTP_LOG_FILE"
     fi
@@ -106,7 +107,7 @@ function warning() {
 # Displays an error message
 function error() {
     local message=$1 timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-    echo -e "${PADDING}${RED}ERROR:${DEFAULT_COLOR} $message"
+    echo -e "${CYAN}[${RED}ERROR${CYAN}]${RED} $message.${DEFAULT_COLOR}"
     if [[ -n "$QFTP_LOG_FILE" ]]; then
         echo "$timestamp - ERROR: $message" >> "$QFTP_LOG_FILE"
     fi
@@ -116,7 +117,7 @@ function error() {
 function fatal_error() {
     local error_message=$1 info_message=$2
     error "$error_message"
-    [[ -n "$info_message" ]] && message "$info_message"
+    [[ -n "$info_message" ]] && echo -e "${CYAN}\xF0\x9F\x9B\x88  $info_message.${DEFAULT_COLOR}"
     exit 1
 }
 
@@ -219,12 +220,12 @@ function add_system_user() {
 # Verify the permissions of dirs to ensure they are read-only for the given user.
 #
 # Usage:
-#   verify_read_only_directories <directories> <user> <force_readonly>
+#   verify_read_only_directories <directories> <user> <fix_writable_dir>
 #
 # Parameters:
-#   - directories    : Colon-separated list of directories to be verified.
-#   - user           : Username of the user whose permissions are being verified.
-#   - force_readonly : Flag to force directories to be read-only if they are writable.
+#   - directories      : Colon-separated list of directories to be verified.
+#   - user             : Username of the user whose permissions are being verified.
+#   - fix_writable_dir : Flag to force directories to be read-only to prevent a fatal error.
 #
 # Example:
 #   verify_read_only_directories "/path/to/dir1:/path/to/dir2" "john" true
@@ -235,31 +236,49 @@ function add_system_user() {
 #     is displayed.
 #
 function verify_read_only_directories() {
-    local directories=$1 user=$2 force_readonly=$3
-    local writable_is_fatal
+    local directories=$1 user=$2 fix_writable_dir=$3
+    local writable_directory_action # 'fatal_error' | 'warning' | 'make_readonly' | 'ignore' #
     
     IFS=':' ; for directory in $directories ; do
         [[ -z "$directory" ]] && continue
+        
+        # at this point, the directory is writable and some action needs to be taken
+        # (by default, only a warning will be displayed)
+        writable_directory_action='warning'
+        
+        # if the directory is prefixed with '!', then there will be a fatal error.
+        if [[ "$directory" == '!'* ]]; then
+            directory="${directory#!}"
+            writable_directory_action='fatal_error'
+            
+            # try to avoid the fatal error if the user wants the fix
+            if [[ "$fix_writable_dir" == true ]]; then
+                writable_directory_action='make_readonly'
+            fi
+        fi
+        
+        # if the directory writable -> perform the corresponding action.
         if is_writable "$directory" "$user"; then
-            
-            # si el dir esta encabezado por '!' entonces habra un error fatal si no es read-only,
-            # en caso contrario solo se muestra un warning
-            if [[ "$directory" == '!'* ]]; then
-                directory="${directory#!}"
-                writable_is_fatal=true
-            else
-                writable_is_fatal=false
-            fi
-            
-            if [[ $writable_is_fatal == false ]]; then
-                warning "Directory '$directory' is writable and potentially unsafe"
-            elif [[ $force_readonly == true ]]; then
-                echo "Forcing '$directory' to be read only"
-                chmod a-w "$directory"
-            else
-                fatal_error "Directory '$directory' must be read-only by main user"
-            fi
-            
+            case "$writable_directory_action" in
+                ignore)
+                    # do nothing
+                    ;;
+                warning)
+                    warning "Directory '$directory' is writable and potentially unsafe"
+                    ;;
+                fatal_error)
+                    fatal_error "Directory '$directory' must be read-only" \
+                                "Use 'FORCE_ANON_READONLY=YES' or manually modify the permissions"
+                    ;;
+                make_readonly)
+                    message "Forcing directory '$directory' to be read-only"
+                    chmod a-w "$directory"
+                    if is_writable "$directory" "$user"; then
+                        fatal_error "Unable to make directory '$directory' read-only" \
+                                    "You must manually modify the permissions"
+                    fi
+                    ;;
+            esac
         fi
     done
 }
@@ -309,12 +328,17 @@ function create_vsftpd_conf() {
     [[ -z   "$output_file"   ]] && fatal_error "create_vsftpd_conf() requires a parameter with the output file"
     [[ ! -f "$template_file" ]] && fatal_error "create_vsftpd_conf() requires the file $PWD/$template_file"
     
-    print_template "$(cat "$template_file")"                         \
-        "{MAIN_USER_NAME}"  "$USER_NAME"                             \
-        "{MAIN_GROUP_NAME}" "$GROUP_NAME"                            \
-        "{VSFTPD_LOG_FILE}" "$VSFTPD_LOG_FILE"                       \
-        "{ANON_ENABLED}"    "$CFG_ANON_ENABLED"                      \
-        "{ANON_HOME}"       "/$VIRTUAL_USERS_DIR/$ANON_VIRTUAL_USER" \
+    local anon_enabled=NO fix_writable_root=NO
+    [[ "$CFG_ANON_ENABLED"      == true ]] && anon_enabled=YES
+    [[ "$CFG_FIX_WRITABLE_ROOT" == true ]] && fix_writable_root=YES
+    
+    print_template "$(cat "$template_file")"                          \
+        "{MAIN_USER_NAME}"    "$USER_NAME"                            \
+        "{MAIN_GROUP_NAME}"   "$GROUP_NAME"                           \
+        "{VSFTPD_LOG_FILE}"   "$VSFTPD_LOG_FILE"                      \
+        "{ANON_ENABLED}"      "$anon_enabled"                         \
+        "{ANON_HOME}"         "$VIRTUAL_USERS_DIR/$ANON_VIRTUAL_USER" \
+        "{FIX_WRITABLE_ROOT}" "$fix_writable_root"                    \
         > "$output_file"
 }
 
@@ -399,7 +423,7 @@ function create_virtual_user() {
         
         # add the directory to the list
         # (if 'writable_is_fatal' then prefix it with '!')
-        [[ "$writable_is_fatal" == true ]] && home_dir="!{home_dir}"
+        [[ "$writable_is_fatal" == true ]] && home_dir="!${home_dir}"
         DIRS_TO_VERIFY="${DIRS_TO_VERIFY}:${home_dir}"
         
     done
@@ -480,7 +504,7 @@ function create_qftp_users() {
         # create the virtual user and associate it with its resources
         # (the 'ftp' user is the anonymous user and doesn't need a system user)
         if [[ "$user_name" == ftp ]]; then
-            create_virtual_user "$user_name" "$user_pass" "$user_resources" "$resource_list"
+            create_virtual_user "$user_name" "$user_pass" "$user_resources" "$resource_list" writable_is_fatal
         else
             create_virtual_user "$user_name" "$user_pass" "$user_resources" "$resource_list" sys_user
         fi
@@ -488,7 +512,7 @@ function create_qftp_users() {
     done < $TEMP_FILE
     rm $TEMP_FILE
     
-    verify_read_only_directories "$DIRS_TO_VERIFY" "$MAIN_USER" 'false'
+    verify_read_only_directories "$DIRS_TO_VERIFY" "$MAIN_USER" "$CFG_FIX_WRITABLE_ROOT"
     
 }
 
@@ -558,8 +582,7 @@ function process_config_var() {
             value=$(format_value "$value" user pass reslist) || return $ERROR
             case "$value" in
                 ftp\|*)
-                    CFG_ANON=$value
-                    CFG_ANON_ENABLED=YES
+                    CFG_ANON_ENABLED=true
                     CFG_USER_LIST="${CFG_USER_LIST}${value}$NEWLINE"
                     ;;
                 *)
@@ -567,9 +590,11 @@ function process_config_var() {
                     ;;
             esac
             ;;
+        FIX_WRITABLE_ROOT)
+            CFG_FIX_WRITABLE_ROOT=$(format_value "$value" bool) || return $ERROR
+            ;;
         PASV)
-            value=$(format_value "$value" bool) || return $ERROR
-            CFG_PASV=$value
+            CFG_PASV=$(format_value "$value" bool) || return $ERROR
             ;;
         PRINT_ERROR)
             echo "ERROR: $value"
@@ -584,7 +609,7 @@ function process_config_var() {
 
 
 # load the configuration reader module
-source "$SCRIPT_DIR/configreader.sh"  
+source "$SCRIPT_DIR/configreader.sh"
 
 echo
 echo "$0"
