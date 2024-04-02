@@ -1,17 +1,47 @@
+<h1 align="center">QuickFtpServer</h1>
+<p align="center">A lightweight, easy-to-configure FTP server using Docker.</p>
+<p align="center">
+<img alt="Platform" src="https://img.shields.io/badge/platform-docker-33F">
+<img alt="Language" src="https://img.shields.io/badge/language-ash script-22E">
+<img alt="License"  src="https://img.shields.io/github/license/martin-rizzo/QuickFtpServer?color=11D">
+<img alt="Last"     src="https://img.shields.io/github/last-commit/martin-rizzo/QuickFtpServer">
+</p>
 
+<!--
 # QuickFtpServer
+-->
 
-## Description
-QuickFtpServer is a lightweight and straightforward implementation of an FTP (File Transfer Protocol) server, designed to adapt to various applications. While the use of FTP has declined in modern times, it remains highly useful for accessing files from legacy systems, such as those running older versions of operating systems like Windows 3.1. By leveraging Docker container technology, this server also offers a portable solution that simplifies deployment and accommodates the diverse requirements of users.
+**QuickFtpServer** simplifies the process of setting up file servers, for access from vintage systems like Windows 3.1, DOS, or any retro system equipped with an FTP client. By utilizing a Docker container, it facilitates effortless server configuration and administration, eliminating complexities. Ideal for transferring files between modern and retro platforms, it can also be employed for conducting file transfer tests or providing temporary file storage.
 
-## Main Features
-- Simplifies FTP file access and sharing.
-- Customize server configuration through a simple config file.
-- Allows connections for anonymous and virtual users with write capabilities.
-- Reduces image size and enhances security with Alpine Linux.
-- Automates Docker resource management for easy development and testing.
+## Technologies Used
+
+- **Docker**: For container creation, management, and deployment.
+- **Alpine Linux**: As the base operating system to minimize image size and improve security.
+- **vsftpd**: Lightweight and secure FTP server used to provide FTP service.
+
+
+## Installation and Testing
+
+To install and test any of the examples included in the project, follow these steps:
+
+1. Clone the repository:
+
+    ```bash
+    git clone https://github.com/martin-rizzo/QuickFtpServer.git .
+    cd QuickFtpServer
+    ```
+
+2. Run the desired example using the provided script `docker-cmd.sh`:
+
+    ```bash
+    ./docker-cmd.sh run 1
+    ```
+
+    _(other examples can be executed by changing '1' to the respective example number)_
+
 
 ## Checklist
+
 - [x] Configuration of available resources.
 - [x] Virtual users with customizable usernames, passwords, and resource access.
 - [x] Anonymous user with configurable resource access.
@@ -21,13 +51,10 @@ QuickFtpServer is a lightweight and straightforward implementation of an FTP (Fi
 - [ ] Selection of PASV or PORT mode for data transfer.
 - [ ] Easy configuration of write access to resources.
 
-## Usage
-QuickFtpServer is ideal for facilitating file access and sharing on vintage systems, simplifying the process for users familiar with initiating FTP connections. It serves as a convenient solution for transferring files between modern systems and retro platforms. Additionally, it can be used for conducting file transfer tests or providing a temporary file storage service.
 
-## Technologies Used
-- **Docker**: For container creation, management, and deployment.
-- **Alpine Linux**: As the base operating system to minimize image size and improve security.
-- **vsftpd**: Lightweight and secure FTP server used to provide FTP service.
+## Lincense
 
-## Objective
-The objective of QuickFtpServer is to provide a seamless solution for implementing a file server that can be accessed from vintage systems running Windows 3.1, DOS, or any retro system with an FTP client. It aims to offer easy file access and sharing capabilities, simplifying the process. By leveraging Docker containers, it streamlines the configuration and management of the FTP server without worrying about the complexities of server setup.
+Copyright (c) 2023 Martin Rizzo  
+This project is licensed under the MIT license.  
+See the ["LICENSE"](LICENSE) file for details.
+
