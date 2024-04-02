@@ -42,20 +42,16 @@ RUN set -ex    \
 # Install the PAM file for FTP user authentication
 COPY vsftpd.pam /etc/pam.d/vsftpd
 
-# Copy project setup files to the /root directory
-#   - vsftpd.conf     : configuration file template
-#   - configreader.sh : configuration reader module
-#   - entrypoint.sh   : container startup script
-#   - test.sh         : configuration reader testing script
-#RUN  mkdir /root
-COPY vsftpd.conf      /root/vsftpd.conf.template
-COPY configreader.sh  /root/configreader.sh
-COPY entrypoint.sh    /root/entrypoint.sh
-COPY test.sh          /root/test.sh
+# Copy project setup files to the /root directory:
+#   - vsftpd.conf.template : configuration file template
+#   - lib_config.sh        : configuration reader module
+#   - lib_utils.sh         : utility functions module
+#   - entrypoint.sh        : container startup script
+WORKDIR /root
+COPY vsftpd.conf.template lib_config.sh lib_utils.sh entrypoint.sh ./
 
 # Set execute permissions for scripts
-RUN chmod +x /root/entrypoint.sh
-RUN chmod +x /root/test.sh
+RUN chmod +x entrypoint.sh
 
 # Expose FTP data (port 20), FTP control (port 21), PASV ports (21000-21007)
 EXPOSE 20 21 21000-21007

@@ -1,5 +1,5 @@
 #!/bin/sh
-# File    : configreader.sh
+# File    : lib_config.sh
 # Brief   : Implements functions to read configuration files.
 # Author  : Martin Rizzo | <martinrizzo@gmail.com>
 # Date    : Mar 19, 2024
