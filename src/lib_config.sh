@@ -94,7 +94,7 @@ function for_each_config_var_in() {
             exit 1
         fi
         
-        value=$(echo "$line"   | cut -d'=' -f2)
+        value=$(echo "$line"   | cut -d'=' -f2-)
         varname=$(echo "$line" | cut -d'=' -f1)
         varname=$(trim    "$varname")
         varname=$(toupper "$varname")
@@ -130,7 +130,7 @@ function for_each_config_var_in() {
 #    - name|user|pass: No modification is applied.
 #
 function format_value() {
-    local line=$1    
+    local line=$1
     OLD_IFS=$IFS ; IFS='|'
     
     local first=true
@@ -138,25 +138,25 @@ function format_value() {
         local format=$2 ; shift
         param=$(trim "$param")
         case $format in
-        
+            
             # resource list - (remove any whitespace)
-            reslist) 
+            reslist)
                 param=$(echo "$param" | sed 's/ //g')
                 ;;
-                
+            
             # directory - (remove leading and trailing slashes)
-            dir)     
+            dir)
                 param=${param#/}
                 param=${param%/}
                 ;;
-                
+            
             # text - (remove double quotes)
-            txt)     
+            txt)
                 param=${param#\"}
                 param=${param%\"}
                 ;;
-                
-            # boolean - (standardize to TRUE or FALSE)                
+            
+            # boolean - (standardize to TRUE or FALSE)
             bool)
                 param=$(toupper "$param")
                 if [[ $param == TRUE || $param == YES ]]; then
@@ -167,16 +167,25 @@ function format_value() {
                     return 1
                 fi
                 ;;
-                
-            # user name/pass - (no modification needed)
-            name|user|pass)
+            
+            # password - (verificar si esta codificado en {base64})
+            pass)
+                if [[ "$param" == \{*\} ]]; then
+                    param=${param#\{}
+                    param=${param%\}}
+                    param=$(echo "$param" | base64 -d)
+                fi
                 ;;
-                
+            
+            # user name/user - (no modification needed)
+            name|user)
+                ;;
+            
             # default case: continue to next iteration
             *)
                 continue
                 ;;
-                
+            
         esac
         [[ "$first" ]] && echo -n "$param" || echo -n "|$param"
         first=
